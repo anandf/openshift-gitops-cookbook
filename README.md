@@ -1,0 +1,1 @@
+# openshfit-gitops-source-hydrator
