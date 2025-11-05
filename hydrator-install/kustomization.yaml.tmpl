@@ -1,0 +1,35 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - https://github.com/argoproj/argo-cd/manifests/base/commit-server?ref={{ (datasource "argocd").ArgoCDVersion }}&timeout=180s
+
+patches:
+  - patch: |-
+      - op: replace
+        path: /metadata/name
+        value: {{ (datasource "argocd").ArgoCDName }}-commit-server
+    target:
+      kind: Deployment
+      name: argocd-commit-server
+  - patch: |-
+      - op: replace
+        path: /metadata/name
+        value: {{ (datasource "argocd").ArgoCDName }}-commit-server
+    target:
+      kind: Service
+      name: argocd-commit-server
+  - patch: |-
+      - op: replace
+        path: /metadata/name
+        value: {{ (datasource "argocd").ArgoCDName }}-commit-server
+    target:
+      kind: ServiceAccount
+      name: argocd-commit-server
+  - patch: |-
+      - op: replace
+        path: /metadata/name
+        value: {{ (datasource "argocd").ArgoCDName }}-commit-server-network-policy
+    target:
+      kind: NetworkPolicy
+      name: argocd-commit-server-network-policy

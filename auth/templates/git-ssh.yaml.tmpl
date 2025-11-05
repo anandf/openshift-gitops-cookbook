@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-push-secret
+  labels:
+    argocd.argoproj.io/secret-type: repository-write
+type: Opaque
+data:
+  url: {{ (datasource "config").ssh.url | base64.Encode}} 
+  type: {{ "git" | base64.Encode }}
+  sshPrivateKey: | 
+    {{ (file.Read (datasource "config").ssh.privateKeyPath) | base64.Encode}} 
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-pull-secret
+  labels:
+    argocd.argoproj.io/secret-type: repository
+type: Opaque
+data:
+  url: {{ (datasource "config").ssh.url | base64.Encode}} 
+  type: {{ "git" | base64.Encode }}
+  sshPrivateKey: |
+    {{ (file.Read (datasource "config").ssh.privateKeyPath) | base64.Encode }}
+  
