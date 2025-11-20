@@ -85,7 +85,7 @@ gomplate -f ${PWD}/hydrator-install/kustomization.yaml.tmpl -o ${PWD}/hydrator-i
 
 Note: If you need to use a different Argo CD version or Argo CD instance, override the values in `values.yaml` before running the above command.
 
-## Create secrets containing the github tokens
+## Create secrets containing the credentials required to connect to git repository for push/pull operations
 
 ### For Github App based connection
 ```
