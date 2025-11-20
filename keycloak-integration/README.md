@@ -1,6 +1,6 @@
 
 ## Introduction
-This document describes the steps required to enable the Source Hydrator feature in OpenShift GitOps v1.16.0 or later.
+This document describes the steps required to integrate Keycloak for SSO authentication in OpenShift GitOps v1.16.0 or later.
 
 ## Prerequisites
 - OpenShift Cluster with v4.16 or later
