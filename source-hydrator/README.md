@@ -5,8 +5,22 @@ This document describes the steps required to enable the Source Hydrator feature
 ## Prerequisites
 - OpenShift Cluster with v4.16 or later
 - The OpenShift CLI binary (oc) is installed and available in your system's PATH.
-- gomplate binary is installed and available in your system's PATH. If not it can be installed via `brew install gomplate`.
+- gomplate binary is installed and available in your system's PATH. If not it can be installed via the below options
 
+    Option 1: Using brew install on MacOS and Linux
+    ```shell
+    brew install gomplate
+    ```
+    Option 2: Using Go install  (all OS)
+    ```shell
+    go install github.com/hairyhenderson/gomplate/v4/cmd/gomplate@latest
+    export PATH=$PATH:$GOPATH/bin
+    ```
+    Option 3: Using docker/podman for running without any local installation
+    ```shell
+    alias gomplate="$DOCKER run hairyhenderson/gomplate:stable"
+    gomplate help
+    ```
 ## Installation of OpenShift GitOps
 
 ### Create the namespace
@@ -46,7 +60,7 @@ spec:
   name: openshift-gitops-operator
   source: redhat-operators
   sourceNamespace: openshift-marketplace
-  startingCSV: openshift-gitops-operator.v1.18.0
+  startingCSV: openshift-gitops-operator.v1.18.1
 EOF
 ```
 ### Wait for the installation to complete
@@ -74,7 +88,11 @@ oc wait argocd/openshift-gitops -n openshift-gitops \
 ## Enable the source hydrator feature
 
 ```shell
-oc patch argocd openshift-gitops -n openshift-gitops  -p '{"spec": {"extraConfig": {"hydrator.enabled": "true"}}}' --type merge
+oc patch argocd openshift-gitops -n openshift-gitops  -p '{"spec": {"controller": {"extraCommandArgs": ["--hydrator-enabled"]}}}' --type merge
+```
+
+```shell
+oc patch argocd openshift-gitops -n openshift-gitops  -p '{"spec": {"server": {"extraCommandArgs": ["--hydrator-enabled"]}}}' --type merge
 ```
 
 ## Install the Source Hydrator (commit-server)
@@ -83,7 +101,7 @@ oc patch argocd openshift-gitops -n openshift-gitops  -p '{"spec": {"extraConfig
 gomplate -f ${PWD}/hydrator-install/kustomization.yaml.tmpl -o ${PWD}/hydrator-install/kustomization.yaml --datasource argocd=${PWD}/hydrator-install/argocd.yaml && oc create -k ${PWD}/hydrator-install -n openshift-gitops
 ```
 
-Note: If you need to use a different Argo CD version or Argo CD instance, override the values in `values.yaml` before running the above command.
+**Note:** If you need to use a different Argo CD version or Argo CD instance, override the values in `values.yaml` before running the above command.
 
 ## Create secrets containing the credentials required to connect to git repository for push/pull operations
 
@@ -100,4 +118,47 @@ gomplate -f ${PWD}/auth/templates/git-https.yaml.tmpl -o ${PWD}/auth/git-https.y
 ### For SSH based connection
 ```
 gomplate -f ${PWD}/auth/templates/git-ssh.yaml.tmpl -o ${PWD}/auth/git-ssh.yaml --datasource config=${PWD}/auth/data/config.yaml && oc apply -f  ${PWD}/auth/git-ssh.yaml -n openshift-gitops
+```
+
+## Prepare the Destination Namespace
+
+```shell
+oc create namespace petclinic-dev
+oc label namespace petclinic-dev argocd.argoproj.io/managed-by=openshift-gitops
+```
+
+## Create the Application in Argo CD
+
+```shell
+oc create -f - <<EOF
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: source-hydrator-test-app
+  namespace: openshift-gitops
+  labels:
+    app: springboot-petclinic
+    environment: development
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: petclinic-dev
+  syncPolicy:
+    automated:
+      enabled: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+  sourceHydrator:
+    drySource:
+      repoURL: https://github.com/anandf/rendered-manifests-examples
+      path: springboot-petclinic/development
+      targetRevision: HEAD
+    hydrateTo:
+      targetBranch: environments/dev-next
+    syncSource:
+      targetBranch: environments/dev
+      path: springboot-petclinic/development
+EOF
 ```

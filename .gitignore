@@ -33,4 +33,6 @@ go.work.sum
 */kustomization.yaml
 
 */auth/*.yaml
+*/auth/data/config.yaml
+source-hydrator/hydrator-install/*.yaml
 *.pem

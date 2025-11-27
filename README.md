@@ -1,6 +1,6 @@
 ## Introduction
 
-This repository contains documentation on some of the recipies that OpenShift GitOps.
+This repository contains documentation on some of the recipes for OpenShift GitOps Operator.
 
 ## Instructions
 

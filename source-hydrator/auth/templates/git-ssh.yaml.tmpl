@@ -9,7 +9,7 @@ data:
   url: {{ (datasource "config").ssh.url | base64.Encode}} 
   type: {{ "git" | base64.Encode }}
   sshPrivateKey: | 
-    {{ (file.Read (datasource "config").ssh.privateKeyPath) | base64.Encode}} 
+    {{ (file.Read (datasource "config").ssh.privateKeyPath) | base64.Encode}}
 ---
 apiVersion: v1
 kind: Secret
@@ -23,4 +23,3 @@ data:
   type: {{ "git" | base64.Encode }}
   sshPrivateKey: |
     {{ (file.Read (datasource "config").ssh.privateKeyPath) | base64.Encode }}
-  

@@ -2,7 +2,7 @@
 # SSH Based AUTHENTICATION
 ssh:
   url: git@github.com:username/repo.git
-  privateKeyPath: /Users/anjoseph/.ssh/id_rsa
+  privateKeyPath: /Users/anjoseph/.ssh/my-private-key
 
 #  HTTPS based authentication
 https:
@@ -14,4 +14,4 @@ githubApp:
   url: https://github.com
   id: "123456"
   installationID: "654321"
-  privateKeyPath: /Users/anjoseph/.ssh/id_rsa  
+  privateKeyPath: /Users/anjoseph/.ssh/my-private-key
