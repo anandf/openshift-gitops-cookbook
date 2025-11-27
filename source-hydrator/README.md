@@ -88,7 +88,7 @@ oc wait argocd/openshift-gitops -n openshift-gitops \
 ## Enable the source hydrator feature
 
 ```shell
-oc patch argocd openshift-gitops -n openshift-gitops  -p '{"spec": {"controller": {"extraCommandArgs": ["--hydrator-enabled"]}}}' --type merge
+oc patch argocd openshift-gitops -n openshift-gitops  -p '{"spec": {"controller": {"extraCommandArgs": ["--hydrator-enabled", "--commit-server", "openshift-gitops-commit-server.openshift-gitops.svc.cluster.local:8086"]}}}' --type merge
 ```
 
 ```shell
@@ -105,17 +105,63 @@ gomplate -f ${PWD}/hydrator-install/kustomization.yaml.tmpl -o ${PWD}/hydrator-i
 
 ## Create secrets containing the credentials required to connect to git repository for push/pull operations
 
+There are 3 options to create credentials for the push/pull operation and the user can choose from one of the three options whichever suits them better.
+1. Github App
+2. HTTPS credentials
+3. SSH credentials
+
 ### For Github App based connection
+
+#### Creating a Github App
+
+Refer the below github document to create a Github App
+https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app
+
+#### Update the data file
+
+Edit the Github App related metadata and URL in the data file `${PWD}/auth/data/config.yaml`
+
+#### Create the push and pull secret
 ```
 gomplate -f ${PWD}/auth/templates/github-app.yaml.tmpl -o ${PWD}/auth/github-app.yaml --datasource config=${PWD}/auth/data/config.yaml && oc apply -f  ${PWD}/auth/github-app.yaml -n openshift-gitops
 ```
 
 ### For HTTPS based connection
+
+#### Create a fine grained Personal Access Token (PAT)
+Refer the below github document to create a fine grained PAT that is applicable for the git repository https://github.com/anandf/rendered-manifests-examples 
+https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token
+
+When creating the PAT, give the following permissions:  
+- Read access to commit statuses and metadata
+- Read and Write access to code, merge queues, and pull requests
+
+#### Update the data file
+
+Edit the username/password and URL in the data file `${PWD}/auth/data/config.yaml`
+
+#### Create the push and pull secret
 ```
 gomplate -f ${PWD}/auth/templates/git-https.yaml.tmpl -o ${PWD}/auth/git-https.yaml --datasource config=${PWD}/auth/data/config.yaml && oc apply -f  ${PWD}/auth/git-https.yaml -n openshift-gitops
 ```
 
 ### For SSH based connection
+
+#### Create a SSH key using the following command
+```shell
+ssh-keygen -t rsa -b 4096 -C "your_email@example.com" -f $HOME/.ssh/my-private-key
+```
+Refer the github documentation for more details https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent
+
+#### Share the generated key
+
+Refer the github documentation for details https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account
+
+#### Update the data file
+
+Edit the privateKeyPath and URL in the data file `${PWD}/auth/data/config.yaml`
+
+#### Create the push and pull secret
 ```
 gomplate -f ${PWD}/auth/templates/git-ssh.yaml.tmpl -o ${PWD}/auth/git-ssh.yaml --datasource config=${PWD}/auth/data/config.yaml && oc apply -f  ${PWD}/auth/git-ssh.yaml -n openshift-gitops
 ```

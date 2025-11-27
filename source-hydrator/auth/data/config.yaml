@@ -1,17 +1,17 @@
 
 # SSH Based AUTHENTICATION
 ssh:
-  url: git@github.com:username/repo.git
-  privateKeyPath: /Users/anjoseph/.ssh/my-private-key
+  url: git@github.com:anandf/rendered-manifests-examples.git
+  privateKeyPath: /Users/anandf/.ssh/my-private-key
 
 #  HTTPS based authentication
 https:
-  url: https://github.com
+  url: https://github.com/anandf/rendered-manifests-examples
   username: my-username
   password: my-password
 
 githubApp:
-  url: https://github.com
+  url: https://github.com/anandf/rendered-manifests-examples
   id: "123456"
   installationID: "654321"
-  privateKeyPath: /Users/anjoseph/.ssh/my-private-key
+  privateKeyPath: /Users/anandf/.ssh/my-private-key

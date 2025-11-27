@@ -30,6 +30,9 @@ patches:
       - op: replace
         path: /metadata/name
         value: {{ (datasource "argocd").ArgoCDName }}-commit-server-network-policy
+      - op: replace
+        path: /spec/ingress/0/from/0/podSelector/matchLabels/app.kubernetes.io~1name
+        value: {{ (datasource "argocd").ArgoCDName }}-application-controller
     target:
       kind: NetworkPolicy
       name: argocd-commit-server-network-policy
