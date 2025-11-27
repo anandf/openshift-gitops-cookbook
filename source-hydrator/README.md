@@ -110,9 +110,9 @@ There are 3 options to create credentials for the push/pull operation and the us
 2. HTTPS credentials
 3. SSH credentials
 
-### For Github App based connection
+### Option 1: Github App
 
-#### Creating a Github App
+#### Create a Github App
 
 Refer the below github document to create a Github App
 https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app
@@ -126,11 +126,10 @@ Edit the Github App related metadata and URL in the data file `${PWD}/auth/data/
 gomplate -f ${PWD}/auth/templates/github-app.yaml.tmpl -o ${PWD}/auth/github-app.yaml --datasource config=${PWD}/auth/data/config.yaml && oc apply -f  ${PWD}/auth/github-app.yaml -n openshift-gitops
 ```
 
-### For HTTPS based connection
+### Option 2: HTTPS Credentials
 
 #### Create a fine grained Personal Access Token (PAT)
-Refer the below github document to create a fine grained PAT that is applicable for the git repository https://github.com/anandf/rendered-manifests-examples 
-https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token
+Refer the below github document to create a fine grained PAT https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token
 
 When creating the PAT, give the following permissions:  
 - Read access to commit statuses and metadata
@@ -145,7 +144,7 @@ Edit the username/password and URL in the data file `${PWD}/auth/data/config.yam
 gomplate -f ${PWD}/auth/templates/git-https.yaml.tmpl -o ${PWD}/auth/git-https.yaml --datasource config=${PWD}/auth/data/config.yaml && oc apply -f  ${PWD}/auth/git-https.yaml -n openshift-gitops
 ```
 
-### For SSH based connection
+### Option 3: SSH Credentials
 
 #### Create a SSH key using the following command
 ```shell
@@ -208,3 +207,15 @@ spec:
       path: springboot-petclinic/development
 EOF
 ```
+## Confirm the Hydration
+Verify that the Argo CD created a new branch dry changes are pushed
+![Hydration to staging branch](./images/argocd_push_to_staging_branch.png)
+![Hydration Status Successful](./images/hydrator_enabled_ui.png)
+
+## Create a Pull request in the repository to the target env branch
+
+## Merge the pull request to promote the dry changes to the dev environment
+![Pull Request](./images/merge_stage_to_env_branch.png)
+
+## Once merged, new changes will be deployed to the new environment
+![Post Merge Automated Sync](./images/post_merge_automated_sync.png)
