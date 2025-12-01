@@ -219,3 +219,56 @@ Verify that the Argo CD created a new branch dry changes are pushed
 
 ## Once merged, new changes will be deployed to the new environment
 ![Post Merge Automated Sync](./images/post_merge_automated_sync.png)
+
+
+## Using ApplicationSet for handling multiple environments
+
+Consider a scenario where you need to manage 3 environments from a single dry source
+The 3 environments we we will be managing using a single ApplicationSet are - dev, stage and prod
+
+```shell
+oc create -f - <<EOF
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: source-hydrator-appset
+  namespace: openshift-gitops
+spec:
+  generators:
+    - list:
+        elements:
+          - env: dev
+            full_env_name: development
+          - env: stage
+            full_env_name: staging
+          - env: prod
+            full_env_name: production
+  template:
+    metadata:
+      name: source-hydrator-{{env}}-app
+      namespace: openshift-gitops
+      labels:
+        app: springboot-petclinic
+        environment: '{{full_env_name}}'
+    spec:
+      project: default
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: petclinic-{{env}}
+      syncPolicy:
+        automated:
+          enabled: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+      sourceHydrator:
+        drySource:
+          repoURL: https://github.com/anandf/rendered-manifests-examples
+          path: 'springboot-petclinic/{{full_env_name}}'
+          targetRevision: HEAD
+        hydrateTo:
+          targetBranch: environments/{{env}}-next
+        syncSource:
+          targetBranch: environments/{{env}}
+EOF
+```
