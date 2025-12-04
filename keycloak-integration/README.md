@@ -73,6 +73,12 @@ oc wait argocd/openshift-gitops -n openshift-gitops \
 
 ## Installation of Red Hat Build of Keycloak Operator
 
+### Create the namespace
+
+```shell
+oc create ns keycloak
+```
+
 ### Create the OperatorGroup
 
 ```shell
@@ -80,12 +86,12 @@ oc create -f - <<EOF
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
-    name: keycloak-og
-    namespace: keycloak
-  spec:
-    targetNamespaces:
-    - keycloak
-    upgradeStrategy: Default
+  name: keycloak-og
+  namespace: keycloak
+spec:
+  targetNamespaces:
+  - keycloak
+  upgradeStrategy: Default
 EOF
 ```
 
@@ -154,21 +160,39 @@ metadata:
 spec:
   selector:
     app: postgresql-db
-  type: LoadBalancer
+  type: ClusterIP
   ports:
   - port: 5432
     targetPort: 5432
 EOF
 ```
+### Expose the DB service as a route
 
-### Create a self signed certificate
 ```shell
-openssl req -subj '/CN=test.keycloak.org/O=Test Keycloak./C=US' -newkey rsa:2048 -nodes -keyout key.pem -x509 -days 365 -out certificate.pem
+oc expose service postgres-db -n keycloak --name=postgres-db-route
+```
+
+### Get the Postgres route host address
+
+```shell
+POSTGRES_ADDRESS=$(oc get route -n keycloak postgres-db-route -o jsonpath='{.spec.host}')
+```
+### Create a self signed certificate
+
+```shell
+openssl req -subj '/CN=argocd.<domain_name>/O=Test Keycloak./C=US' -newkey rsa:2048 -nodes -keyout key.pem -x509 -days 365 -out certificate.pem
 ```
 
 ### Create the secret with the cert credentials
 ```shell
-oc create secret tls argocd-kc-tls-secret --cert certificate.pem --key key.pem
+oc create secret tls argocd-keycloak-tls -n keycloak --cert certificate.pem --key key.pem 
+```
+
+[OR]
+
+### Annotate the keycloak service
+```shell
+oc annotate svc/argocd-keycloak-service -n keycloak service.beta.openshift.io/serving-cert-secret-name=argocd-keycloak-tls
 ```
 
 ### Create DB secret
@@ -199,9 +223,10 @@ spec:
       name: keycloak-db-secret
       key: password
   http:
-    tlsSecret: argocd-kc-tls-secret
-  hostname:
-    hostname: test.keycloak.org
+    tlsSecret: argocd-keycloak-tls
+    insecureSkipVerify: true
+  ingress:
+    className: openshift-default
 EOF
 ```
 
@@ -215,7 +240,7 @@ oc wait keycloaks/argocd-keycloak -n keycloak \
 ### Get the ingresses internal hostname
 
 ```shell
-INTERNAL_HOSTNAME=$(oc get ingress argocd-keycloak-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+INTERNAL_HOSTNAME=$(oc get ingress argocd-keycloak-ingress -n keycloak -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
 INTERNAL_HOSTIP=$(dig +short ${INTERNAL_HOSTNAME})
 sudo echo "${INTERNAL_HOSTIP}\t test.keycloak.org" >> /etc/hosts
 ```
@@ -223,8 +248,8 @@ sudo echo "${INTERNAL_HOSTIP}\t test.keycloak.org" >> /etc/hosts
 ### Get the Keycloak admin secret 
 
 ```shell
-oc get secret argocd-keycloak-initial-admin -o jsonpath='{.data.username}' | base64 -d
-oc get secret argocd-keycloak-initial-admin -o jsonpath='{.data.password}' | base64 -d
+oc get secret argocd-keycloak-initial-admin -n keycloak -o jsonpath='{.data.username}' | base64 -d
+oc get secret argocd-keycloak-initial-admin -n keycloak -o jsonpath='{.data.password}' | base64 -d
 ```
 
 ### Create the KeycloakRealmImport Custom Resource to create a realm
@@ -250,4 +275,21 @@ EOF
 oc wait keycloakrealmimport/argocd-realm-kc -n keycloak \
   --for=jsonpath='{.status.conditions[?(@.type=="Done")].status}=True' \
   --timeout=3m
+```
+
+### Patch the argocd secret
+```shell
+oc patch secret argocd-secret -n openshift-gitops -p {"oidc.keycloak.clientSecret":  "5J5jEOYtkqTVC5aQI0MvEC7TmlTSVR5S"} --type=merge
+```
+
+### Patch the ArgoCD with the OIDC Config
+```shell
+  spec.oidcConfig: |
+    name: Keycloak
+    issuer: https://argocd.<domain_name>/realms/argocd-realm
+    clientID: argocd
+    clientSecret: $oidc.keycloak.clientSecret
+    requestedScopes: ["openid", "profile", "email", "groups"]
+
+  spec.sso: null
 ```
