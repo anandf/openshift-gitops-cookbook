@@ -1,0 +1,16 @@
+[allowlist]
+  description = "Global Allowlist"
+
+  # Ignore based on any subset of the file path
+  paths = [
+    # Ignore all example certs
+    '''README.md'''
+  ]
+
+  # Ignore based on any subset of the line
+  regexes = [
+    # Ignore lines containing a sample secret
+    '''5J5jEOYtkqTVC5aQI0MvEC7TmlTSVR5S''',
+    '''testpassword''',
+    '''${CLIENT_SECRET}'''
+  ]
