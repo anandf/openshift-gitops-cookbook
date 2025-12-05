@@ -57,6 +57,7 @@ oc wait subscription openshift-gitops-operator -n openshift-gitops-operator \
   --timeout=3m
 ```
 ### Wait for the operator deployment to be ready
+
 ```shell
 until oc get deploy/openshift-gitops-operator-controller-manager -n openshift-gitops-operator &> /dev/null; do \
   sleep 10; \
@@ -65,6 +66,7 @@ oc rollout status deploy/openshift-gitops-operator-controller-manager -n openshi
 ```
 
 ### Wait for the ArgoCD instance to be available
+
 ```shell
 oc wait argocd/openshift-gitops -n openshift-gitops \
   --for=jsonpath='{.status.phase}'=Available \
@@ -115,6 +117,14 @@ spec:
 EOF
 ```
 
+### Create a secret for Database Credentials
+
+```shell
+oc create secret generic keycloak-db-secret -n keycloak\
+  --from-literal=username=postgres \
+  --from-literal=password=testpassword
+```
+
 ### Create the Database for Keycloak
 
 ```shell
@@ -143,7 +153,10 @@ spec:
               name: cache-volume
           env:
             - name: POSTGRES_PASSWORD
-              value: testpassword
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-db-secret
+                  key: password
             - name: PGDATA
               value: /data/pgdata
             - name: POSTGRES_DB
@@ -166,41 +179,6 @@ spec:
     targetPort: 5432
 EOF
 ```
-### Expose the DB service as a route
-
-```shell
-oc expose service postgres-db -n keycloak --name=postgres-db-route
-```
-
-### Get the Postgres route host address
-
-```shell
-POSTGRES_ADDRESS=$(oc get route -n keycloak postgres-db-route -o jsonpath='{.spec.host}')
-```
-### Create a self signed certificate
-
-```shell
-openssl req -subj '/CN=argocd.<domain_name>/O=Test Keycloak./C=US' -newkey rsa:2048 -nodes -keyout key.pem -x509 -days 365 -out certificate.pem
-```
-
-### Create the secret with the cert credentials
-```shell
-oc create secret tls argocd-keycloak-tls -n keycloak --cert certificate.pem --key key.pem 
-```
-
-[OR]
-
-### Annotate the keycloak service
-```shell
-oc annotate svc/argocd-keycloak-service -n keycloak service.beta.openshift.io/serving-cert-secret-name=argocd-keycloak-tls
-```
-
-### Create DB secret
-```shell
-oc create secret generic keycloak-db-secret -n keycloak\
-  --from-literal=username=postgres \
-  --from-literal=password=testpassword
-```
 
 ### Create the Keycloak Custom Resource
 
@@ -215,7 +193,7 @@ spec:
   instances: 1
   db:
     vendor: postgres
-    host: postgres-db
+    host: postgres-db.keycloak.svc.cluster.local
     usernameSecret:
       name: keycloak-db-secret
       key: username
@@ -230,6 +208,12 @@ spec:
 EOF
 ```
 
+### Annotate the keycloak service to generate TLS certs
+
+```shell
+oc annotate svc/argocd-keycloak-service -n keycloak service.beta.openshift.io/serving-cert-secret-name=argocd-keycloak-tls
+```
+
 ### Wait for the Keycloak instance to be ready
 
 ```shell
@@ -237,28 +221,41 @@ oc wait keycloaks/argocd-keycloak -n keycloak \
   --for=jsonpath='{.status.conditions[?(@.type=="Ready")].status}=True' \
   --timeout=3m
 ```
-### Get the ingresses internal hostname
+
+### Get the Keycloak admin secret
 
 ```shell
-INTERNAL_HOSTNAME=$(oc get ingress argocd-keycloak-ingress -n keycloak -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-INTERNAL_HOSTIP=$(dig +short ${INTERNAL_HOSTNAME})
-sudo echo "${INTERNAL_HOSTIP}\t test.keycloak.org" >> /etc/hosts
+export KC_ADMIN_USERNAME=$(oc get secret argocd-keycloak-initial-admin -n keycloak -o jsonpath='{.data.username}' | base64 -d)
+export KC_ADMIN_PASSWORD=$(oc get secret argocd-keycloak-initial-admin -n keycloak -o jsonpath='{.data.password}' | base64 -d)
 ```
 
-### Get the Keycloak admin secret 
+### Get the host address of Argo CD
 
 ```shell
-oc get secret argocd-keycloak-initial-admin -n keycloak -o jsonpath='{.data.username}' | base64 -d
-oc get secret argocd-keycloak-initial-admin -n keycloak -o jsonpath='{.data.password}' | base64 -d
+export ARGOCD_HOSTNAME=$(oc get route -n openshift-gitops openshift-gitops-server -o jsonpath='{.spec.host}')
+```
+
+### Generate a client secret for Argo CD client
+
+```shell
+export CLIENT_SECRET=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 32)
+export USERNAME_SECRET=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 12)
+```
+
+### Patch the argocd secret
+
+```shell
+oc patch secret argocd-secret -n openshift-gitops -p '{"stringData": {"oidc.keycloak.clientSecret":  "${CLIENT_SECRET}"}}' --type=merge
 ```
 
 ### Create the KeycloakRealmImport Custom Resource to create a realm
+
 ```shell
 oc create -f - <<EOF
 apiVersion: k8s.keycloak.org/v2alpha1
 kind: KeycloakRealmImport
 metadata:
-  name: argocd-realm-kc
+  name: argocd-realm
   namespace: keycloak
 spec:
   keycloakCRName: argocd-keycloak
@@ -267,29 +264,197 @@ spec:
     realm: argocd-realm
     displayName: Argo CD Realm
     enabled: true
+    clients:
+      - clientId: argocd
+        name: ArgoCD Client
+        description: OIDC client for Argo CD Integration
+        rootUrl: "https://${ARGOCD_HOSTNAME}"
+        adminUrl: "https://${ARGOCD_HOSTNAME}"
+        baseUrl: /applications
+        surrogateAuthRequired: false
+        alwaysDisplayInConsole: false
+        enabled: true
+        attributes:
+          realm_client: "false"
+          oidc.ciba.grant.enabled: "false"
+          backchannel.logout.session.required: "true"
+          standard.token.exchange.enabled: "false"
+          post.logout.redirect.uris: "https://${ARGOCD_HOSTNAME}/applications"
+          oauth2.device.authorization.grant.enabled": "false"
+          backchannel.logout.revoke.offline.tokens": "false"
+          dpop.bound.access.tokens": "false"
+        fullScopeAllowed: true
+        protocol: openid-connect
+        clientAuthenticatorType: client-secret
+        redirectUris:
+          - "https://${ARGOCD_HOSTNAME}/auth/callback"
+        webOrigins:
+          - "https://${ARGOCD_HOSTNAME}"
+        secret: "${CLIENT_SECRET}"
+        serviceAccountsEnabled: true
+        standardFlowEnabled: true
+        implicitFlowEnabled: false
+        directAccessGrantsEnabled: true
+        publicClient: false
+        frontchannelLogout: true
+        notBefore: 0
+        bearerOnly: false
+        consentRequired: false
+        defaultClientScopes:
+          - openid
+          - profile
+          - email
+          - groups
+          - basic
+          - roles
+        optionalClientScopes:
+          - address
+          - phone
+          - offline_access
+          - organization
+          - microprofile-jwt
+          - web-origins
+          - acr
+    defaultDefaultClientScopes:
+      - openid
+      - roles
+      - profile
+      - email
+      - roles
+      - web-origins
+      - acr
+      - basic
+      - groups
+    defaultOptionalClientScopes:
+      - address
+      - phone
+      - offline_access
+      - organization
+      - microprofile-jwt
+    groups:
+      - name: ArgoCDAdmins
+        description: Argo CD Administrators,
+        path: /ArgoCDAdmins
+    users:
+      - username: anandf
+        firstName: Anand Francis
+        lastName: Joseph
+        email: anandfrancisjoseph@gmail.com
+        emailVerified: true
+        enabled: true
+        groups:
+          - ArgoCDAdmins
+        credentials:
+          - type: password
+            value: "${USERNAME_SECRET}"
+            temporary: false
 EOF
 ```
 
 ### Wait for the realm to be initialized
+
 ```shell
-oc wait keycloakrealmimport/argocd-realm-kc -n keycloak \
+oc wait keycloakrealmimport/argocd-realm -n keycloak \
   --for=jsonpath='{.status.conditions[?(@.type=="Done")].status}=True' \
   --timeout=3m
 ```
 
-### Patch the argocd secret
+
+### Get the Keycloak hostname
+
 ```shell
-oc patch secret argocd-secret -n openshift-gitops -p {"oidc.keycloak.clientSecret":  "5J5jEOYtkqTVC5aQI0MvEC7TmlTSVR5S"} --type=merge
+export KEYCLOAK_HOSTNAME=$(oc get route -n keycloak | grep argocd-keycloak-service | awk '{print $2}')
 ```
 
-### Patch the ArgoCD with the OIDC Config
-```shell
-  spec.oidcConfig: |
-    name: Keycloak
-    issuer: https://argocd.<domain_name>/realms/argocd-realm
-    clientID: argocd
-    clientSecret: $oidc.keycloak.clientSecret
-    requestedScopes: ["openid", "profile", "email", "groups"]
+### Add ClientScope Group to the Client
 
-  spec.sso: null
+#### Login to the Keycloak server
+
+```shell
+kcadm.sh config credentials --server ${KEYCLOAK_HOSTNAME} --realm master --user ${KC_ADMIN_USERNAME} --password ${KC_ADMIN_PASSWORD}
+```
+
+**Note:** if you are getting cert related errors, refer this solution https://access.redhat.com/solutions/7076894
+
+#### Create the ClientScope called 'groups'
+
+```shell
+kcadm.sh create client-scopes -r argocd-realm -s '
+{
+  "name": "groups",
+  "description": "",
+  "protocol": "openid-connect",
+  "attributes": {
+    "include.in.openid.provider.metadata": "true",
+    "include.in.token.scope": "false",
+    "display.on.consent.screen": "true",
+    "gui.order": "",
+    "consent.screen.text": ""
+  },
+  "protocolMappers": [
+    {
+      "name": "groups",
+      "protocol": "openid-connect",
+      "protocolMapper": "oidc-group-membership-mapper",
+      "consentRequired": false,
+      "config": {
+        "full.path": "false",
+        "introspection.token.claim": "true",
+        "userinfo.token.claim": "true",
+        "id.token.claim": "true",
+        "lightweight.claim": "false",
+        "access.token.claim": "true",
+        "claim.name": "groups"
+      }
+    }
+  ]
+}
+'
+```
+#### Get the Client and ClientScope UUIDs
+
+```shell
+# Get the ID of the Client (e.g., "my-custom-client")
+export CLIENT_UUID=$(kcadm.sh get clients -r argocd-realm -q clientId=argocd --fields id --format csv --noquotes)
+
+# Get the ID of the Scope (e.g., "groups")
+export SCOPE_UUID=$(kcadm.sh get client-scopes -r argocd-realm -q name=groups --fields id --format csv --noquotes)
+```
+
+#### Update the client to include the client scope
+
+```shell
+kcadm.sh update clients/$CLIENT_UUID/default-client-scopes/$SCOPE_UUID -r argocd-realm
+```
+### Patch the ArgoCD with the OIDC Config and remove SSO
+
+```shell
+oc patch argocd openshift-gitops -n openshift-gitops --type='json' -p '
+[
+  {
+    "op": "add",
+    "path": "/spec/oidcConfig",
+    "value": "name: Keycloak\nissuer: https://${KEYCLOAK_HOSTNAME}/realms/argocd-realm\nclientID: argocd\nclientSecret: $oidc.keycloak.clientSecret\nrequestedScopes: [\"openid\", \"profile\", \"email\", \"groups\"]"
+  },
+  {
+    "op": "replace",
+    "path": "/spec/sso",
+    "value": null
+  },
+]
+'
+```
+
+**Note:** If you are using self-signed certificate tell Argo CD to ignore the errors in cert verification
+
+```shell
+oc patch argocd openshift-gitops -n openshift-gitops --type=merge -p '{"spec": {"extraConfig": {"oidc.tls.insecure.skip.verify": "true"}}}'
+```
+### Restart the Argo CD Server
+
+Restart the Argo CD Server pod to ensure that the configuration changes are in effect.
+
+```shell
+oc scale deployment openshift-gitops-server -n openshift-gitops --replicas=0
+oc scale deployment openshift-gitops-server -n openshift-gitops --replicas=1
 ```
